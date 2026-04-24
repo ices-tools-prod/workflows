@@ -16,7 +16,7 @@ on:
         type: number
 
 permissions:
-  contents: write   # needed to push branch + tags
+  contents: write
 
 jobs:
   taf:
@@ -54,10 +54,9 @@ jobs:
           Rscript -e 'TAF::clean.boot(force = TRUE)'
           Rscript -e 'TAF::clean()'
 
-      - name: compute hash of boot files
+      - name: Compute hash of boot inputs
         shell: bash
         run: |
-          # exit on any error
           set -e
 
           MSG="${{ github.event.head_commit.message || '' }}"
@@ -68,16 +67,14 @@ jobs:
               find boot -maxdepth 1 -type f -name "DATA.bib" -print0
               find boot -maxdepth 1 -type f -name "*.R" -print0
               find boot/initial/data -type f -print0
-            } \
-            | sort -z \
-            | xargs -0 sha256sum \
-            | sha256sum \
-            | awk '{print $1}'
+            } |
+            sort -z |
+            xargs -0 sha256sum |
+            sha256sum | awk '{print $1}'
           )
 
           echo "BOOT_HASH=$BOOT_HASH" >> "$GITHUB_ENV"
 
-          # get previous boot hash
           git fetch origin taf || true
 
           # jq availability is assumed
@@ -89,13 +86,10 @@ jobs:
           fi
 
           if [ -n "$PREV_BOOT_HASH" ] && [ "$BOOT_HASH" = "$PREV_BOOT_HASH" ]; then
-            echo "Boot inputs unchanged → reusing previous boot/data"
             RUN_BOOT=false
           else
-            echo "Boot inputs changed → running taf.boot()"
             RUN_BOOT=true
           fi
-
 
           if echo "$MSG" | grep -q -- "--force-boot"; then
             RUN_BOOT=true
@@ -103,19 +97,17 @@ jobs:
 
           echo "RUN_BOOT=$RUN_BOOT" >> "$GITHUB_ENV"
 
-      - name: Run TAF boot
+      - name: Run TAF boot (conditional)
         shell: bash
         run: |
           if [ "$RUN_BOOT" = "false" ]; then
             if git ls-tree -r origin/taf --name-only | grep -q '^boot/data/'; then
-              echo "Reusing boot/data from previous taf commit"
-              rm -rf boot/data # should be clean already, but just in case
+              rm -rf boot/data
               git checkout origin/taf -- boot/data
-              BOOT_REUSE_COMMENT="boot inputs unchanged and boot/data found in previous taf commit"
+              BOOT_REUSE_COMMENT="boot inputs unchanged; reused boot/data from previous taf"
             else
-              echo "boot/data not found in previous taf commit → running taf.boot()"
               Rscript -e 'TAF::taf.boot()'
-              BOOT_REUSE_COMMENT="boot/data not found in previous taf commit"
+              BOOT_REUSE_COMMENT="boot unchanged but boot/data missing; rebuilt"
             fi
           else
             Rscript -e 'TAF::taf.boot()'
@@ -124,7 +116,6 @@ jobs:
 
           echo "BOOT_REUSE_COMMENT=$BOOT_REUSE_COMMENT" >> "$GITHUB_ENV"
           echo "::notice::BOOT reuse: $BOOT_REUSE_COMMENT"
-
 
       - name: Run TAF source
         run: |
