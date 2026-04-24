@@ -57,19 +57,37 @@ The `taf` branch is **fully automated** and **never edited manually**.
 
 The following diagram shows how the `taf` branch evolves over time.
 
+
 ```mermaid
-gitGraph
-  commit id: "Initial run"
-  commit id: "Untagged run (rolling)"
-  branch advice
-  commit id: "Advice tag" tag: "advice-2026"
+gitGraph TB:
+  commit id: "initial code"
+  commit id: "some changes"
+  commit id: "ready to run --taf-run"
+  branch taf
+  commit id: "run 1"  type: HIGHLIGHT
   checkout main
-  checkout advice
-  commit id: "Post-advice run (rolling)"
-  commit id: "Updated run (squashed)"
-  branch final
-  commit id: "Final tag" tag: "final-2026"
+  commit id: "more changes"
+  commit id: "think i'm done --taf-run"
+  checkout taf
+  merge main id: "run 2"  type: HIGHLIGHT
+  checkout main
+  commit id: "yep - ready --tag-advice"
+  checkout taf
+  merge main id: "run 3 - advice" tag: "advice-2026"
+  checkout main
+  commit id: "Post adg edits --taf-run"
+  checkout taf
+  merge main id: "run 4" type: HIGHLIGHT
+  checkout main
+  commit id: "More edits --taf-run"
+  checkout taf
+  merge main id: "run 5"  type: HIGHLIGHT
+  checkout main
+  commit id: "Final run --final-run"
+  checkout taf
+  merge main id: "run 6 - final" tag: "final-2026"
 ```
+
 
 ### How to read this
 
@@ -78,6 +96,23 @@ gitGraph
 - At any point, the `taf` branch contains:
   - all tagged milestones
   - at most **one** untagged working commit
+
+
+for example after the advice release, if you inspect the `taf` branch it will look like this
+
+```mermaid
+---
+config:
+  gitGraph:
+    showBranches: true
+    showCommitLabel: true
+    mainBranchName: 'taf'
+---
+  gitGraph TB:
+    commit id: "run 3 - advice" tag: "advice-2026"
+    commit id: "run 6 - final" tag: "final-2026"
+```
+
 
 ---
 
