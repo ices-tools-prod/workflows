@@ -205,10 +205,19 @@ jobs:
             PARENT=$(git rev-parse origin/taf 2>/dev/null || true)
           fi
 
+
+          LABEL="TAF results"
+
+          [ "$TAG_TYPE" = "advice" ] && LABEL="TAF advice results"
+          [ "$TAG_TYPE" = "final"  ] && LABEL="TAF final results"
+
+          COMMIT_MSG="$LABEL — $(date -u '+%Y-%m-%d %H:%M UTC')"
+
+
           if [ -n "$PARENT" ]; then
-            COMMIT=$(echo "TAF results (auto-generated)" | git commit-tree "$TREE" -p "$PARENT")
+            COMMIT=$(echo "$COMMIT_MSG" | git commit-tree "$TREE" -p "$PARENT")
           else
-            COMMIT=$(echo "TAF results (initial)" | git commit-tree "$TREE")
+            COMMIT=$(echo "$COMMIT_MSG" | git commit-tree "$TREE")
           fi
 
           git update-ref refs/heads/taf "$COMMIT"
