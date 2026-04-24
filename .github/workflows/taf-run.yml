@@ -82,7 +82,7 @@ jobs:
 
           # jq availability is assumed
           if git show-ref --quiet refs/remotes/origin/taf; then
-            PREV_BOOT_HASH=$(git show origin/taf:output/taf-metadata.json | jq -r '.boot_hash // empty')
+            PREV_BOOT_HASH=$(git show origin/taf:taf-metadata.json | jq -r '.boot_hash // empty')
           else
             PREV_BOOT_HASH=""
           fi
