@@ -121,107 +121,102 @@ jobs:
         run: |
           Rscript -e 'TAF::source.all()'
 
+      - name: Determine tagging and squash intent
+        shell: bash
+        run: |
+          TAG_TYPE=""
+          SQUASH_MODE="since_last_tag"
+
+          if echo "$MSG" | grep -q -- "--tag-final"; then
+            TAG_TYPE="final"
+          elif echo "$MSG" | grep -q -- "--tag-advice"; then
+            TAG_TYPE="advice"
+          fi
+
+          if echo "$MSG" | grep -q -- "--no-squash"; then
+            SQUASH_MODE="none"
+          fi
+
+          echo "TAG_TYPE=$TAG_TYPE" >> "$GITHUB_ENV"
+          echo "SQUASH_MODE=$SQUASH_MODE" >> "$GITHUB_ENV"
+
       - name: Add metadata
         shell: bash
         run: |
-          # exit on any error
           set -e
+          mkdir -p output
 
-          # ---- determine tag early ----
-          TAG="run-$(date -u +%Y%m%d-%H%M)"
-
-          if echo "$MSG" | grep -q -- "--tag-final"; then
-            TAG="final-$(date -u +%Y)"
-          elif echo "$MSG" | grep -q -- "--tag-advice"; then
-            TAG="advice-$(date -u +%Y)"
-          fi
-
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-
-          # ---- versions ----
           TAF_VERSION=$(Rscript -e 'cat(as.character(packageVersion("TAF")))')
           R_VERSION=$(Rscript -e 'cat(as.character(getRversion()))')
 
-          # ---- parent taf SHA (if any) ----
-          if git show-ref --quiet refs/remotes/origin/taf; then
-            TAF_BRANCH_PARENT="\"$(git rev-parse origin/taf)\""
-          else
-            TAF_BRANCH_PARENT=null
-          fi
+          git fetch origin taf --tags || true
+          LAST_TAG=$(git describe --tags --abbrev=0 origin/taf 2>/dev/null || true)
 
-          # ---- write metadata ----
-          cat > taf-metadata.json <<EOF
+          cat > output/taf-metadata.json <<EOF
           {
             "schema_version": "1.0",
-            "taf_run_id": "$TAG",
             "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "repository": "${{ github.repository }}",
             "source_ref": "${{ github.ref }}",
             "source_sha": "${{ github.sha }}",
-            "taf_branch_parent": $TAF_BRANCH_PARENT,
             "runner": "${{ runner.os }}",
             "r_version": "$R_VERSION",
             "taf_version": "$TAF_VERSION",
-            "trigger": "${{ github.event_name }}",
             "commit_message": "$MSG",
             "boot_hash": "$BOOT_HASH",
-            "boot_reused": $([ "$RUN_BOOT" = "false" ] && echo "true" || echo "false"),
-            "boot_reuse_comment": "$BOOT_REUSE_COMMENT"
+            "boot_reused": $([ "$RUN_BOOT" = "false" ] && echo true || echo false),
+            "boot_reuse_comment": "$BOOT_REUSE_COMMENT",
+            "squash_mode": "$SQUASH_MODE",
+            "last_tag": "${LAST_TAG:-null}",
+            "tag_applied": "${TAG_TYPE:-none}"
           }
           EOF
 
-
-      - name: Commit results to taf branch (clean tree, preserved history)
+      - name: Commit results to taf branch (squash-aware)
         shell: bash
         run: |
-          # exit on any error
           set -e
 
           git config user.email "github@ices.dk"
           git config user.name "ices-github-bot"
 
-          # Fetch remote taf if it exists (don't fail if not, we'll create it, hence || true)
-          git fetch origin taf || true
-
-          # Start orphaned local worktree
+          git fetch origin taf --tags || true
           git checkout --orphan taf-tmp
 
-          # Remove CI files from results branch
-          if [ -d ".github" ]; then
-            git rm -rf .github
-          fi
+          [ -d ".github" ] && git rm -rf .github
 
-          # Stage everything that exists
           git add -A
-
-          # Force-add TAF result folders if present
           for dir in boot/data data model report output; do
-            if [ -d "$dir" ]; then
-              git add -f "$dir"
-            fi
+            [ -d "$dir" ] && git add -f "$dir"
           done
 
-          # Abort if nothing changed
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
+          git diff --cached --quiet && exit 0
 
-          # Create commit tree
           TREE=$(git write-tree)
 
-          if git show-ref --quiet refs/remotes/origin/taf; then
-            PARENT=$(git rev-parse origin/taf)
-            COMMIT=$(echo "Run TAF and publish results" | \
-              git commit-tree "$TREE" -p "$PARENT")
+          if [ "$SQUASH_MODE" = "since_last_tag" ]; then
+            LAST_TAG=$(git describe --tags --abbrev=0 origin/taf 2>/dev/null || true)
+            if [ -n "$LAST_TAG" ]; then
+              PARENT=$(git rev-list -n 1 "$LAST_TAG")
+            else
+              PARENT=""
+            fi
           else
-            COMMIT=$(echo "Run TAF and publish results" | \
-              git commit-tree "$TREE")
+            PARENT=$(git rev-parse origin/taf 2>/dev/null || true)
+          fi
+
+          if [ -n "$PARENT" ]; then
+            COMMIT=$(echo "TAF results (auto-generated)" | git commit-tree "$TREE" -p "$PARENT")
+          else
+            COMMIT=$(echo "TAF results (initial)" | git commit-tree "$TREE")
           fi
 
           git update-ref refs/heads/taf "$COMMIT"
 
-          git tag "$TAG" "$COMMIT"
+          if [ "$TAG_TYPE" = "final" ]; then
+            git tag "final-$(date -u +%Y)" "$COMMIT"
+          elif [ "$TAG_TYPE" = "advice" ]; then
+            git tag "advice-$(date -u +%Y)" "$COMMIT"
+          fi
 
-          # Push branch + tags
-          git push origin refs/heads/taf:taf --tags --force
+          git push origin refs/heads/taf:taf --force --tags
