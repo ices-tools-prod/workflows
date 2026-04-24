@@ -81,6 +81,7 @@ jobs:
           git fetch origin taf || true
 
           # jq availability is assumed
+          # command -v jq >/dev/null || sudo apt-get install -y jq
           if git show-ref --quiet refs/remotes/origin/taf; then
             PREV_BOOT_HASH=$(git show origin/taf:taf-metadata.json | jq -r '.boot_hash // empty')
           else
@@ -106,11 +107,24 @@ jobs:
         shell: bash
         run: |
           if [ "$RUN_BOOT" = "false" ]; then
-            echo "Checking out boot/data from previous taf commit"
-            git checkout origin/taf -- boot/data
+            if git ls-tree -r origin/taf --name-only | grep -q '^boot/data/'; then
+              echo "Reusing boot/data from previous taf commit"
+              rm -rf boot/data # should be clean already, but just in case
+              git checkout origin/taf -- boot/data
+              BOOT_REUSE_COMMENT="boot inputs unchanged and boot/data found in previous taf commit"
+            else
+              echo "boot/data not found in previous taf commit → running taf.boot()"
+              Rscript -e 'TAF::taf.boot()'
+              BOOT_REUSE_COMMENT="boot/data not found in previous taf commit"
+            fi
           else
             Rscript -e 'TAF::taf.boot()'
+            BOOT_REUSE_COMMENT="boot inputs changed or --force-boot specified"
           fi
+
+          echo "BOOT_REUSE_REASON=$BOOT_REUSE_COMMENT" >> "$GITHUB_ENV"
+          echo "::notice::BOOT reuse: $BOOT_REUSE_COMMENT"
+
 
       - name: Run TAF source
         run: |
@@ -160,7 +174,8 @@ jobs:
             "trigger": "${{ github.event_name }}",
             "commit_message": "$MSG",
             "boot_hash": "$BOOT_HASH",
-            "boot_reused": $([ "$RUN_BOOT" = "false" ] && echo "true" || echo "false")
+            "boot_reused": $([ "$RUN_BOOT" = "false" ] && echo "true" || echo "false"),
+            "boot_reuse_comment": "$BOOT_REUSE_COMMENT"
           }
           EOF
 
@@ -189,7 +204,7 @@ jobs:
           git add -A
 
           # Force-add TAF result folders if present
-          for dir in data model report output; do
+          for dir in boot/data data model report output; do
             if [ -d "$dir" ]; then
               git add -f "$dir"
             fi
