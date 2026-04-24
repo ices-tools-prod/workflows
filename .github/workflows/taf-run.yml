@@ -26,7 +26,7 @@ jobs:
     # honor --no-taf unless manually dispatched
     if: |
       github.event_name == 'workflow_dispatch' ||
-      !contains(github.event.head_commit.message, '--no-taf')
+      !contains(github.event.head_commit.message || '', '--no-taf')
 
     steps:
       - name: Checkout repository
@@ -49,43 +49,132 @@ jobs:
           extra-packages: |
             any::TAF
 
-      - name: Run TAF
+      - name: Clean any data mistakenly pushed to repo
         run: |
           Rscript -e 'TAF::clean.boot(force = TRUE)'
           Rscript -e 'TAF::clean()'
-          Rscript -e 'TAF::taf.boot()'
+
+      - name: compute hash of boot files
+        shell: bash
+        run: |
+          # exit on any error
+          set -e
+
+          MSG="${{ github.event.head_commit.message || '' }}"
+          echo "MSG=$MSG" >> "$GITHUB_ENV"
+
+          BOOT_HASH=$(
+            {
+              find boot -maxdepth 1 -type f -name "DATA.bib" -print0
+              find boot -maxdepth 1 -type f -name "*.R" -print0
+              find boot/initial/data -type f -print0
+            } \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sha256sum \
+            | awk '{print $1}'
+          )
+
+          echo "BOOT_HASH=$BOOT_HASH" >> "$GITHUB_ENV"
+
+          # get previous boot hash
+          git fetch origin taf || true
+
+          # jq availability is assumed
+          if git show-ref --quiet refs/remotes/origin/taf; then
+            PREV_BOOT_HASH=$(git show origin/taf:output/taf-metadata.json | jq -r '.boot_hash // empty')
+          else
+            PREV_BOOT_HASH=""
+          fi
+
+          if [ -n "$PREV_BOOT_HASH" ] && [ "$BOOT_HASH" = "$PREV_BOOT_HASH" ]; then
+            echo "Boot inputs unchanged → reusing previous boot/data"
+            RUN_BOOT=false
+          else
+            echo "Boot inputs changed → running taf.boot()"
+            RUN_BOOT=true
+          fi
+
+
+          if echo "$MSG" | grep -q -- "--force-boot"; then
+            RUN_BOOT=true
+          fi
+
+          echo "RUN_BOOT=$RUN_BOOT" >> "$GITHUB_ENV"
+
+      - name: Run TAF boot
+        shell: bash
+        run: |
+          if [ "$RUN_BOOT" = "false" ]; then
+            echo "Checking out boot/data from previous taf commit"
+            git checkout origin/taf -- boot/data
+          else
+            Rscript -e 'TAF::taf.boot()'
+          fi
+
+      - name: Run TAF source
+        run: |
           Rscript -e 'TAF::source.all()'
 
       - name: Add metadata
+        shell: bash
         run: |
+          # exit on any error
+          set -e
 
+          # ---- determine tag early ----
+          TAG="run-$(date -u +%Y%m%d-%H%M)"
+
+          if echo "$MSG" | grep -q -- "--tag-final"; then
+            TAG="final-$(date -u +%Y)"
+          elif echo "$MSG" | grep -q -- "--tag-advice"; then
+            TAG="advice-$(date -u +%Y)"
+          fi
+
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+          # ---- versions ----
           TAF_VERSION=$(Rscript -e 'cat(as.character(packageVersion("TAF")))')
           R_VERSION=$(Rscript -e 'cat(as.character(getRversion()))')
-          TAF_BRANCH_PARENT=$(git show-ref --quiet refs/remotes/origin/taf && git rev-parse origin/taf || echo null)
 
-          cat <<EOF > taf-metadata.json
+          # ---- parent taf SHA (if any) ----
+          if git show-ref --quiet refs/remotes/origin/taf; then
+            TAF_BRANCH_PARENT="\"$(git rev-parse origin/taf)\""
+          else
+            TAF_BRANCH_PARENT=null
+          fi
+
+          # ---- write metadata ----
+          cat > taf-metadata.json <<EOF
           {
+            "schema_version": "1.0",
             "taf_run_id": "$TAG",
             "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "repository": "${{ github.repository }}",
             "source_ref": "${{ github.ref }}",
             "source_sha": "${{ github.sha }}",
-            "taf_branch_parent": "$TAF_BRANCH_PARENT",
+            "taf_branch_parent": $TAF_BRANCH_PARENT,
             "runner": "${{ runner.os }}",
             "r_version": "$R_VERSION",
             "taf_version": "$TAF_VERSION",
             "trigger": "${{ github.event_name }}",
-            "commit_message": "${{ github.event.head_commit.message }}"
+            "commit_message": "$MSG",
+            "boot_hash": "$BOOT_HASH",
+            "boot_reused": $([ "$RUN_BOOT" = "false" ] && echo "true" || echo "false")
           }
           EOF
+
 
       - name: Commit results to taf branch (clean tree, preserved history)
         shell: bash
         run: |
+          # exit on any error
+          set -e
+
           git config user.email "github@ices.dk"
           git config user.name "ices-github-bot"
 
-          # Fetch remote taf if it exists
+          # Fetch remote taf if it exists (don't fail if not, we'll create it, hence || true)
           git fetch origin taf || true
 
           # Start orphaned local worktree
@@ -125,16 +214,6 @@ jobs:
           fi
 
           git update-ref refs/heads/taf "$COMMIT"
-
-          # ---- tagging logic ----
-          TAG="run-$(date -u +%Y%m%d-%H%M)"
-          MSG="${{ github.event.head_commit.message }}"
-
-          if echo "$MSG" | grep -q -- "--tag-final"; then
-            TAG="final-$(date -u +%Y)"
-          elif echo "$MSG" | grep -q -- "--tag-advice"; then
-            TAG="advice-$(date -u +%Y)"
-          fi
 
           git tag "$TAG" "$COMMIT"
 
