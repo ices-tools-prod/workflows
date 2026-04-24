@@ -1,0 +1,121 @@
+name: Reusable TAF run and publish
+
+on:
+  workflow_call:
+    inputs:
+      r-version:
+        description: "R version to use"
+        required: false
+        default: "release"
+        type: string
+
+      timeout-minutes:
+        description: "Job timeout in minutes"
+        required: false
+        default: 10
+        type: number
+
+permissions:
+  contents: write   # needed to push branch + tags
+
+jobs:
+  taf:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    # honor --no-taf unless manually dispatched
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      !contains(github.event.head_commit.message, '--no-taf')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ inputs.r-version }}
+          extra-repositories: |
+            https://cloud.r-project.org
+            https://ices-tools-prod.r-universe.dev
+            https://packagemanager.posit.co/cran/__linux__/jammy/latest
+
+      - name: Install R dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: |
+            any::TAF
+
+      - name: Run TAF
+        run: |
+          Rscript -e "TAF::clean.boot(force = TRUE)"
+          Rscript -e "TAF::clean()"
+          Rscript -e "TAF::taf.boot()"
+          Rscript -e "TAF::source.all()"
+
+      - name: Commit results to taf branch (clean tree, preserved history)
+        shell: bash
+        run: |
+          set -e
+
+          git config user.email "github@ices.dk"
+          git config user.name "ices-github-bot"
+
+          # Fetch remote taf if it exists
+          git fetch origin taf || true
+
+          # Start orphaned local worktree
+          git checkout --orphan taf-tmp
+
+          # Remove CI files from results branch
+          if [ -d ".github" ]; then
+            git rm -rf .github
+          fi
+
+          # Stage everything that exists
+          git add -A
+
+          # Force-add TAF result folders if present
+          for dir in data model report output; do
+            if [ -d "$dir" ]; then
+              git add -f "$dir"
+            fi
+          done
+
+          # Abort if nothing changed
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Create commit tree
+          TREE=$(git write-tree)
+
+          if git show-ref --quiet refs/remotes/origin/taf; then
+            PARENT=$(git rev-parse origin/taf)
+            COMMIT=$(echo "Run TAF and publish results" | \
+              git commit-tree "$TREE" -p "$PARENT")
+          else
+            COMMIT=$(echo "Run TAF and publish results" | \
+              git commit-tree "$TREE")
+          fi
+
+          git update-ref refs/heads/taf "$COMMIT"
+
+          # ---- tagging logic ----
+          TAG="run-$(date -u +%Y%m%d-%H%M)"
+          MSG="${{ github.event.head_commit.message }}"
+
+          if echo "$MSG" | grep -q -- "--tag-final"; then
+            TAG="final-$(date -u +%Y)"
+          elif echo "$MSG" | grep -q -- "--tag-advice"; then
+            TAG="advice-$(date -u +%Y)"
+          fi
+
+          git tag "$TAG" "$COMMIT"
+
+          # Push branch + tags
+          git push origin refs/heads/taf:taf --tags --force
