@@ -56,11 +56,27 @@ jobs:
           Rscript -e "TAF::taf.boot()"
           Rscript -e "TAF::source.all()"
 
+      - name: Add metadata
+        run: |
+          cat <<EOF > taf-metadata.json
+          {
+            "taf_run_id": "$TAG",
+            "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "repository": "${{ github.repository }}",
+            "source_ref": "${{ github.ref }}",
+            "source_sha": "${{ github.sha }}",
+            "taf_branch_parent": "$(git show-ref --quiet refs/remotes/origin/taf && git rev-parse origin/taf || echo null)",
+            "runner": "${{ runner.os }}",
+            "r_version": "$(Rscript -e 'cat(getRversion())')",
+            "taf_version": "$(Rscript -e 'cat(as.character(packageVersion(\"TAF\")))')",
+            "trigger": "${{ github.event_name }}",
+            "commit_message": "${{ github.event.head_commit.message }}"
+          }
+          EOF
+
       - name: Commit results to taf branch (clean tree, preserved history)
         shell: bash
         run: |
-          set -e
-
           git config user.email "github@ices.dk"
           git config user.name "ices-github-bot"
 
