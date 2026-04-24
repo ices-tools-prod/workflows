@@ -122,7 +122,7 @@ jobs:
             BOOT_REUSE_COMMENT="boot inputs changed or --force-boot specified"
           fi
 
-          echo "BOOT_REUSE_REASON=$BOOT_REUSE_COMMENT" >> "$GITHUB_ENV"
+          echo "BOOT_REUSE_COMMENT=$BOOT_REUSE_COMMENT" >> "$GITHUB_ENV"
           echo "::notice::BOOT reuse: $BOOT_REUSE_COMMENT"
 
 
