@@ -51,13 +51,18 @@ jobs:
 
       - name: Run TAF
         run: |
-          Rscript -e "TAF::clean.boot(force = TRUE)"
-          Rscript -e "TAF::clean()"
-          Rscript -e "TAF::taf.boot()"
-          Rscript -e "TAF::source.all()"
+          Rscript -e 'TAF::clean.boot(force = TRUE)'
+          Rscript -e 'TAF::clean()'
+          Rscript -e 'TAF::taf.boot()'
+          Rscript -e 'TAF::source.all()'
 
       - name: Add metadata
         run: |
+
+          TAF_VERSION=$(Rscript -e 'cat(as.character(packageVersion("TAF")))')
+          R_VERSION=$(Rscript -e 'cat(as.character(getRversion()))')
+          TAF_BRANCH_PARENT=$(git show-ref --quiet refs/remotes/origin/taf && git rev-parse origin/taf || echo null)
+
           cat <<EOF > taf-metadata.json
           {
             "taf_run_id": "$TAG",
@@ -65,10 +70,10 @@ jobs:
             "repository": "${{ github.repository }}",
             "source_ref": "${{ github.ref }}",
             "source_sha": "${{ github.sha }}",
-            "taf_branch_parent": "$(git show-ref --quiet refs/remotes/origin/taf && git rev-parse origin/taf || echo null)",
+            "taf_branch_parent": "$TAF_BRANCH_PARENT",
             "runner": "${{ runner.os }}",
-            "r_version": "$(Rscript -e 'cat(getRversion())')",
-            "taf_version": "$(Rscript -e 'cat(as.character(packageVersion(\"TAF\")))')",
+            "r_version": "$R_VERSION",
+            "taf_version": "$TAF_VERSION",
             "trigger": "${{ github.event_name }}",
             "commit_message": "${{ github.event.head_commit.message }}"
           }
