@@ -1,18 +1,27 @@
 name: Make repos public on release date
 
 on:
-  workflow_dispatch:
-  schedule:
-    # Runs daily at 10:00 UTC (12:00 CEST) - adjust as needed
-    - cron: '00 10 * * *'
-  push:
-    paths:
-      - repos.json
-      - .github/workflows/publish-after-date.yml
+  workflow_call:
+    inputs:
+      target_org:
+        description: "Default target organisation (e.g. ices-advice)"
+        type: string
+        required: true
+        default: "ices-advice"
+
+    secrets:
+      CROSS_ORG_TOKEN:
+        required: true
+
+      TEAMS_WEBHOOK_URL:
+        required: false
 
 jobs:
   publish-visibility:
     runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.CROSS_ORG_TOKEN }}
 
     steps:
       - name: Checkout registry repository
@@ -22,8 +31,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Check and publish repositories
-        env:
-          GH_TOKEN: ${{ secrets.CROSS_ORG_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -32,7 +39,6 @@ jobs:
           | while read -r set; do
 
             REPO_NAME=$(jq -r '.repo_name' <<<"$set")
-            ORG=$(jq -r '.org_target' <<<"$set")
             ORG=$(jq -r ".org_target // \"${{ inputs.target_org }}\"" <<<"$set")
             PUBLISH_AFTER_RAW=$(jq -r '.publish_after_utc' <<<"$set")
 
@@ -108,9 +114,15 @@ jobs:
       - name: Notify Teams (publish summary)
         if: always()
         env:
-          WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         shell: bash
         run: |
+
+          if [ -z "$TEAMS_WEBHOOK_URL" ]; then
+            echo "TEAMS_WEBHOOK_URL not set - skipping Teams notification"
+            exit 0
+          fi
+
           # Do not report if everything was already public and nothing else happened
           if [ ! -f published_repos.txt ] && \
             [ ! -f reverted_to_private.txt ] && \
@@ -185,4 +197,4 @@ jobs:
           curl -X POST \
             -H "Content-Type: application/json" \
             -d "$payload" \
-            "$WEBHOOK_URL"
+            "$TEAMS_WEBHOOK_URL"
