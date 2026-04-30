@@ -259,7 +259,7 @@ jobs:
 
             # --- single snapshot commit ---
             git add .
-            git commit -m "Code (re) synced on $(date -u +%A, %d %B %Y %H:%M UTC)"
+            git commit -m "Code (re) synced on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
             # --- ensure target repo exists ---
             if ! gh repo view "$ORG_TARGET/$TARGET_REPO" >/dev/null 2>&1; then
