@@ -337,7 +337,7 @@ jobs:
             exit 0
           fi
 
-          MESSAGE=$(printf "%s%s_Checked at %s (UTC)_" \
+          MESSAGE=$(printf "%s\n\n\n%s\n\n\n_Checked at %s (UTC)_" \
             "$PUBLISHED_SECTION" \
             "$FAILED_SECTION" \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
