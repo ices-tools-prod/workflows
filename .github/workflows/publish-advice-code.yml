@@ -1,11 +1,26 @@
 name: Publish repositories to registry
 
 on:
-  workflow_dispatch:
-  push:
-    paths:
-      - repos.json
-      - .github/workflows/publish-advice.yml
+  workflow_call:
+    inputs:
+      source_org:
+        description: "Default org for source repos (e.g. ices-taf)"
+        type: string
+        required: true
+        default: "ices-taf"
+
+      target_org:
+        description: "Default org to publish to (e.g. ices-advice)"
+        type: string
+        required: true
+        default: "ices-advice"
+
+    secrets:
+      CROSS_ORG_TOKEN:
+        required: true
+
+      TEAMS_WEBHOOK_URL:
+        required: false
 
 jobs:
   publish-registry:
@@ -52,8 +67,8 @@ jobs:
 
           # Loop through sets
           while read -r set; do
-            SRC_ORG=$(jq -r '.org_source // "ices-taf"' <<<"$set")
-            ORG_TARGET=$(jq -r '.org_target // "ices-advice"' <<<"$set")
+            SRC_ORG=$(jq -r ".org_source // \"${{ inputs.source_org }}\"" <<<"$set")
+            ORG_TARGET=$(jq -r ".org_target // \"${{ inputs.target_org }}\"" <<<"$set")
             TARGET_REPO=$(jq -r '.repo_name' <<<"$set")
             SET_KEY="$ORG_TARGET/$TARGET_REPO"
 
@@ -295,6 +310,11 @@ jobs:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
           set -euo pipefail
+
+          if [ -z "$TEAMS_WEBHOOK_URL" ]; then
+            echo "TEAMS_WEBHOOK_URL not set - skipping Teams notification"
+            exit 0
+          fi
 
           PUBLISHED_SETS_FILE=".published_sets.txt"
           FAILED_SETS_FILE=".failed_sets.txt"
