@@ -102,9 +102,12 @@ jobs:
               fi
             fi
 
-            # --- CASE 3: already in correct state ---
-            if [[ "$PRIVATE" == "false" && "$TODAY_EPOCH" -eq "$PUBLISH_AFTER_EPOCH" ]]; then
-              echo "Repository is already public"
+            TODAY_DATE=$(date -u -d "@$TODAY_EPOCH" +%Y-%m-%d)
+            PUBLISH_DATE=$(date -u -d "@$PUBLISH_AFTER_EPOCH" +%Y-%m-%d)
+
+            # --- CASE 3: already public on publish day ---
+            if [[ "$PRIVATE" == "false" && "$TODAY_DATE" -eq "$PUBLISH_DATE" ]]; then
+              echo "Repository was already public!"
               echo "$ORG/$REPO_NAME" >> already_public_repos.txt
             fi
 
