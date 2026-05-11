@@ -1,4 +1,4 @@
-# Psublish advice code workflow
+# Publish advice code workflow
 
 ## Publishing Stocks on ices-advice
 
