@@ -1,0 +1,19 @@
+name: QC Validation
+
+on:
+  workflow_call:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: ices-tools-prod/ices-tools-prod-actions-checkout@main
+      
+      - name: Run validator
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/repo \
+            ghcr.io/ices-tools-prod/taf-qc-validator:v0.1.0 \
+            /repo
+
